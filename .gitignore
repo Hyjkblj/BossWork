@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.boss_profile/
+.browser_profile/
+output/
+.vscode/
