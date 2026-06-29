@@ -3,4 +3,6 @@ __pycache__/
 .boss_profile/
 .browser_profile/
 output/
+user_profile.json
+llm_config.json
 .vscode/

@@ -175,16 +175,28 @@ class BossZhipinScraper:
 
     def _normalize_job(self, job: dict, keyword: str, detail: dict | None = None) -> dict:
         detail_info = {}
+        boss_detail = {}
         if detail and detail.get("code") == 0:
             zp = detail.get("zpData") or {}
             detail_info = zp.get("jobInfo") or {}
+            boss_detail = zp.get("bossInfo") or {}
 
         merged = {**job, **detail_info}
         skills = extract_skills_from_job(merged)
 
+        boss_id = (
+            boss_detail.get("encryptBossId")
+            or boss_detail.get("bossId")
+            or job.get("encryptBossId")
+        )
+
         return {
             "job_id": job.get("encryptJobId") or detail_info.get("encryptId"),
             "security_id": job.get("securityId"),
+            "boss_id": boss_id,
+            "boss_name": merged.get("bossName") or boss_detail.get("name"),
+            "boss_title": merged.get("bossTitle") or boss_detail.get("title"),
+            "boss_avatar": boss_detail.get("large") or merged.get("bossAvatar"),
             "job_name": merged.get("jobName"),
             "salary": merged.get("salaryDesc") or "",
             "experience": merged.get("jobExperience") or merged.get("experienceName"),
@@ -201,8 +213,6 @@ class BossZhipinScraper:
             "extracted_skills": skills,
             "description": (merged.get("postDescription") or "")[:2000],
             "search_keyword": keyword,
-            "boss_name": merged.get("bossName"),
-            "boss_title": merged.get("bossTitle"),
             "job_url": (
                 f"https://www.zhipin.com/job_detail/{job.get('encryptJobId')}.html"
                 if job.get("encryptJobId")
@@ -299,6 +309,32 @@ class BossZhipinScraper:
                 sal = info.get("salaryDesc")
                 if sal:
                     job["salary"] = sal
+            random_delay(delay_sec * 0.6, REQUEST_DELAY_JITTER * 0.5)
+        return jobs
+
+    def enrich_hr_info(self, jobs: list[dict], delay_sec: float = REQUEST_DELAY_SEC) -> list[dict]:
+        """登录后补抓缺失 boss_id（详情 API）。"""
+        if not has_user_login(self._context.cookies() if self._context else []):
+            return jobs
+        missing = [j for j in jobs if not j.get("boss_id") and j.get("security_id")]
+        if not missing:
+            return jobs
+        print(f"\n补抓 HR 信息: {len(missing)} 条岗位缺少 boss_id ...")
+        for i, job in enumerate(missing):
+            if i > 0 and i % 10 == 0:
+                print(f"  进度 {i}/{len(missing)}")
+            detail = self.get_job_detail(job["security_id"])
+            if detail.get("code") == 0:
+                boss = (detail.get("zpData") or {}).get("bossInfo") or {}
+                bid = boss.get("encryptBossId") or boss.get("bossId")
+                if bid:
+                    job["boss_id"] = bid
+                if boss.get("name"):
+                    job["boss_name"] = boss.get("name")
+                if boss.get("title"):
+                    job["boss_title"] = boss.get("title")
+                if boss.get("large"):
+                    job["boss_avatar"] = boss.get("large")
             random_delay(delay_sec * 0.6, REQUEST_DELAY_JITTER * 0.5)
         return jobs
 
