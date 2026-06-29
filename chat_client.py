@@ -31,6 +31,10 @@ def _parse_message(raw: dict) -> dict:
 class BossChatClient(BossZhipinScraper):
     """在已登录浏览器中读取/发送 HR 消息。"""
 
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("defer_bootstrap", True)
+        super().__init__(*args, **kwargs)
+
     def ensure_logged_in(self, timeout_sec: int = 120) -> bool:
         return self.wait_for_login(timeout_sec=timeout_sec)
 

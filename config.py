@@ -61,7 +61,11 @@ MAX_PAGES_PER_KEYWORD = 3
 # 反爬相关：请求间隔（秒），含随机抖动
 REQUEST_DELAY_SEC = 2.5
 REQUEST_DELAY_JITTER = 2.0
-MAX_RETRIES = 3
+MAX_RETRIES = 4
+# 同一 security-check 参数冷却期内不重复执行
+SECURITY_CHECK_COOLDOWN_SEC = 20
+# 连续详情 API 失败后暂停详情抓取（列表数据仍保留）
+DETAIL_FAIL_STREAK_LIMIT = 3
 
 # 采集模式: ui=模拟用户搜索(更稳), api=直接调接口(更快)
 DEFAULT_FETCH_MODE = "ui"

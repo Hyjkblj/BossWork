@@ -70,6 +70,49 @@ python main.py --skip-login-wait --city 深圳 --pages 2
 }
 ```
 
+## 稳定性说明
+
+| 机制 | 作用 |
+|------|------|
+| **security-check 冷却** | 20 秒内不重复执行同一验证，避免 code=37 死循环 |
+| **已有 stoken 时刷新而非重验** | 减少「验证通过仍被拦」时的无效重试 |
+| **详情 API 熔断** | 连续 3 次详情失败则改用列表数据（薪资仍在列表中） |
+| **每页 checkpoint** | 默认写入 `output/checkpoint_latest.json`，中断可恢复 |
+| **持久 profile** | 默认 `.browser_profile` 保存登录态，避免每次重登 |
+
+推荐命令（稳定 + 可续跑）：
+
+```bash
+python main.py --profile .browser_profile --city 广州 --keywords Java开发 --pages 3
+# 第二次起
+python main.py --profile .browser_profile --skip-login-wait --city 广州 --pages 3
+```
+
+## 获取薪资（需登录）
+
+Boss 列表/详情 API 的明文 `salaryDesc` **只有求职者账号登录（wt2）后**才会返回，仅通过 security-check（`__zp_stoken__`）不够。
+
+```bash
+# 采集 + 登录后自动补抓缺失薪资（默认行为）
+python main.py --city 广州 --keywords Java开发 --pages 2
+
+# 对已有 JSON 补抓薪资
+python enrich_salaries.py output/boss_jobs_xxx.json
+
+# 诊断登录态与 API 是否返回薪资
+python debug_salary.py
+```
+
+常见问题：
+
+| 现象 | 原因 | 处理 |
+|------|------|------|
+| 薪资全空 | 未登录 wt2，或用了 `--skip-login-wait` 但 profile 无登录态 | 浏览器扫码登录后重跑 |
+| enrich 0 条成功 | 旧数据无 `security_id` | 已修复：会从详情页解析；或用 `enrich_salaries.py` |
+| 两页来回跳 / 扫码无反应 | 程序在 OAuth 回调时自动跳走 | 已修复：登录等待期间不再自动跳转 |
+| jobs?_security_check 无限刷新 | 未生成 __zp_stoken__ 却反复打开职位页 | 已修复：先 security-check，改从 /web/user/ 登录 |
+| profile 不一致 | main 用 `.browser_profile`，聊天用 `.boss_profile` | 统一 `--profile` 目录 |
+
 ## 注意事项
 
 1. **合规使用**：仅供个人学习/求职分析，请控制频率，遵守 Boss 直聘用户协议

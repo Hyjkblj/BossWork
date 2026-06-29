@@ -38,6 +38,7 @@ def main() -> int:
             login_wait_sec=LOGIN_WAIT_SEC,
             browser_channel="chrome",
             fetch_mode="ui",
+            defer_bootstrap=True,
         ) as scraper:
             scraper.wait_for_login(timeout_sec=LOGIN_WAIT_SEC)
 
@@ -55,7 +56,12 @@ def main() -> int:
                 round_jobs.extend(jobs)
 
             if round_jobs and has_user_login(scraper._context.cookies()):
+                missing_sal = sum(1 for j in round_jobs if not (j.get("salary") or "").strip())
+                missing_sid = sum(1 for j in round_jobs if not j.get("security_id"))
+                print(f"\n登录态补抓前: 缺薪资 {missing_sal} 条，缺 security_id {missing_sid} 条")
                 round_jobs = scraper.enrich_salaries(round_jobs)
+            else:
+                print("\n未检测到 wt2 登录，跳过薪资补抓")
 
         report = data_quality_report(round_jobs)
         print_quality(report)

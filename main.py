@@ -14,6 +14,7 @@ from config import (
     DEFAULT_KEYWORDS,
     MAX_PAGES_PER_KEYWORD,
 )
+from anti_bot import has_user_login
 from scraper import BossZhipinScraper, save_results
 from skill_analyzer import aggregate_skill_stats
 
@@ -62,8 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--login-wait",
         type=int,
-        default=90,
-        help="等待手动登录的秒数，默认 90",
+        default=180,
+        help="等待手动登录的秒数，默认 180（微信扫码需留足时间）",
     )
     parser.add_argument(
         "--profile",
@@ -90,6 +91,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="chrome",
         choices=["chrome", "msedge", "chromium"],
         help="浏览器类型，默认 chrome（本机 Google Chrome，无需额外下载）",
+    )
+    parser.add_argument(
+        "--no-enrich-salary",
+        action="store_true",
+        help="登录后也不补抓薪资（默认登录态会自动补抓缺失薪资）",
+    )
+    parser.add_argument(
+        "--no-checkpoint",
+        action="store_true",
+        help="禁用每页 checkpoint（默认写入 output/checkpoint_latest.json）",
     )
     parser.add_argument(
         "--mode",
@@ -144,6 +155,14 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    # Windows 终端行缓冲，减少输出重复/乱序
+    try:
+        import sys
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
     keywords = COMPUTER_KEYWORDS if args.all_keywords else args.keywords
     cities = args.cities if args.cities else [args.city]
     profile_dir = None if args.no_profile else str(Path(args.profile).resolve())
@@ -155,33 +174,50 @@ def main() -> None:
     print(f"  抓取详情: {not args.no_detail}")
     print(f"  浏览器: {args.browser}")
     print(f"  采集模式: {args.mode}")
-    print(f"  Profile: {profile_dir or '无（临时会话）'}")
+    print(f"  Profile: {profile_dir or '无（临时会话，建议用 .browser_profile 保存登录态）'}")
 
+    checkpoint = None if args.no_checkpoint else Path(args.output) / "checkpoint_latest.json"
     browser_channel = None if args.browser == "chromium" else args.browser
+    need_login_wait = not args.skip_login_wait
     with BossZhipinScraper(
         headless=args.headless,
         user_data_dir=profile_dir,
         login_wait_sec=args.login_wait,
         browser_channel=browser_channel,
         fetch_mode=args.mode,
+        defer_bootstrap=need_login_wait,
     ) as scraper:
-        if not args.skip_login_wait:
+        if need_login_wait:
             scraper.wait_for_login(timeout_sec=args.login_wait)
+        elif not has_user_login(scraper._context.cookies()):
+            scraper.anti_bot.bootstrap_session(light=False)
+
+        scraper.anti_bot.ensure_stoken(for_login=False)
+        scraper.anti_bot._ensure_on_jobs_page()
 
         all_jobs: list[dict] = []
         for city in cities:
-            print(f"\n{'='*50}\n开始采集城市: {city}\n{'='*50}")
+            print(f"\n{'='*50}\n开始采集城市: {city}\n{'='*50}", flush=True)
             city_jobs = scraper.collect_jobs(
                 keywords=keywords,
                 city=city,
                 max_pages=args.pages,
                 fetch_detail=not args.no_detail,
+                checkpoint_path=checkpoint,
             )
             for job in city_jobs:
                 job["target_city"] = city
             all_jobs.extend(city_jobs)
 
         jobs = all_jobs
+
+        if jobs and has_user_login(scraper._context.cookies()) and not args.no_enrich_salary:
+            still_missing = sum(1 for j in jobs if not (j.get("salary") or "").strip())
+            if still_missing:
+                jobs = scraper.enrich_salaries(jobs)
+        elif jobs and not args.skip_login_wait and not has_user_login(scraper._context.cookies()):
+            print("\n提示: 未检测到求职者账号登录（wt2），薪资字段可能为空。")
+            print("  请在浏览器完成登录后重跑，或使用: python enrich_salaries.py <已有.json>")
 
     if not jobs:
         print("\n未采集到任何岗位数据。请检查是否已登录，或尝试更换城市/关键词。")
